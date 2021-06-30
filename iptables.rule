@@ -1,0 +1,96 @@
+#!/bin/bash
+
+EXTIF="enp3s0"
+INIF="br0"
+INNET="172.16.0.0/16 172.17.0.0/16 172.18.0.0/16 10.8.0.0/24"
+export EXTIF INIF INNET
+
+  echo "1" > /proc/sys/net/ipv4/tcp_syncookies
+  echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
+  for i in /proc/sys/net/ipv4/conf/*/{rp_filter,log_martians}; do
+        echo "1" > $i
+  done
+  for i in /proc/sys/net/ipv4/conf/*/{accept_source_route,accept_redirects,send_redirects}; do
+        echo "0" > $i
+  done
+
+  PATH=/sbin:/usr/sbin:/bin:/usr/bin:/usr/local/sbin:/usr/local/bin; export PATH
+  iptables -F
+  iptables -X
+  iptables -Z
+  iptables -P INPUT   DROP
+  iptables -P OUTPUT  ACCEPT
+  iptables -P FORWARD ACCEPT
+  iptables -A INPUT -i lo -j ACCEPT
+  iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+  if [ -f /usr/local/virus/iptables/iptables.deny ]; then
+        sh /usr/local/virus/iptables/iptables.deny
+  fi
+  if [ -f /usr/local/virus/iptables/iptables.allow ]; then
+        sh /usr/local/virus/iptables/iptables.allow
+  fi
+  if [ -f /usr/local/virus/httpd-err/iptables.http ]; then
+        sh /usr/local/virus/httpd-err/iptables.http
+  fi
+
+  AICMP="0 8 3 3/4 4 11 12 14 16 18"
+  for tyicmp in $AICMP
+  do
+    iptables -A INPUT -i $EXTIF -p icmp --icmp-type $tyicmp -j ACCEPT
+    iptables -A INPUT -p icmp --icmp-type $tyicmp -j ACCEPT
+  done
+
+ iptables -A INPUT -p TCP -i $EXTIF --dport  2774 --sport 1024:65534 -j ACCEPT # SSH
+ iptables -A INPUT -p TCP -i $EXTIF --dport  12433 --sport 1024:65534 -j ACCEPT # RDP
+# iptables -A INPUT -p TCP -i $EXTIF --dport  25 --sport 1024:65534 -j ACCEPT # SMTP
+# iptables -A INPUT -p UDP -i $EXTIF --dport  53 --sport 1024:65534 -j ACCEPT # DNS
+# iptables -A INPUT -p TCP -i $EXTIF --dport  53 --sport 1024:65534 -j ACCEPT # DNS
+ iptables -A INPUT -p TCP -i $EXTIF --dport  80 --sport 1024:65534 -j ACCEPT # WWW
+# iptables -A INPUT -p TCP -i $EXTIF --dport 110 --sport 1024:65534 -j ACCEPT # POP3
+# iptables -A INPUT -p TCP -i $EXTIF --dport 443 --sport 1024:65534 -j ACCEPT # HTTPS
+# iptables -A INPUT -p UDP -i $EXTIF --dport 161 --sport 1024:65534 -j ACCEPT # SNMP
+ iptables -A INPUT -p UDP --dport 161 --sport 1024:65534 -j ACCEPT # SNMP
+ iptables -A INPUT -p TCP --dport 22 --sport 1024:65534 -j ACCEPT # VPN
+ iptables -A INPUT -p UDP --dport 22 --sport 1024:65534 -j ACCEPT # VPN
+ iptables -A INPUT -p TCP --dport 9568 --sport 1024:65534 -j ACCEPT # Mgnt
+
+  modules="ip_tables iptable_nat ip_nat_ftp ip_nat_irc ip_conntrack 
+ip_conntrack_ftp ip_conntrack_irc"
+  for mod in $modules
+  do
+      testmod=`lsmod | grep "^${mod} " | awk '{print $1}'`
+      if [ "$testmod" == "" ]; then
+            modprobe $mod
+      fi
+  done
+
+  iptables -F -t nat
+  iptables -X -t nat
+  iptables -Z -t nat
+  iptables -t nat -P PREROUTING  ACCEPT
+  iptables -t nat -P POSTROUTING ACCEPT
+  iptables -t nat -P OUTPUT      ACCEPT
+
+  if [ "$INIF" != "" ]; then
+    iptables -A INPUT -i $INIF -j ACCEPT
+    echo "1" > /proc/sys/net/ipv4/ip_forward
+    if [ "$INNET" != "" ]; then
+        for innet in $INNET
+        do
+            iptables -t nat -A POSTROUTING -s $innet -o $EXTIF -j MASQUERADE
+        done
+    fi
+  fi
+
+# iptables -t nat -A PREROUTING -p tcp -i $EXTIF --dport 80 \
+#          -j DNAT --to-destination 192.168.1.210:80 # WWW
+
+# iptables -t nat -A PREROUTING -p tcp -s 1.2.3.4  --dport 6000 \
+#          -j DNAT --to-destination 192.168.100.10
+# iptables -t nat -A PREROUTING -p tcp -s 1.2.3.4  --sport 3389 \
+#          -j DNAT --to-destination 192.168.100.20
+
+# 6. 最終將這些功能儲存下來吧！
+/usr/sbin/iptables-save
+#  /etc/init.d/iptables save

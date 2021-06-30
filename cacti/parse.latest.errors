@@ -1,0 +1,34 @@
+#!/bin/bash
+
+#get latest test run report id
+rpt=$(ls /root/scalability-test-toolkit/rpts/ -t | grep -v .tgz | head -n 1)
+echo "rpt=$rpt"
+
+#get test run load id (HARD)
+#load="300s-3000u"
+#get latest test run load id
+load=$(ls /root/scalability-test-toolkit/rpts/$rpt/ -t | tail -n 1)
+echo "load=$load"
+
+#get test run id
+runid=$(ls /root/scalability-test-toolkit/rpts/$rpt/$load -t | head -n 1)
+echo "runid=$runid"
+
+#make error log dir for this test run
+mkdir -p /var/www/errlog/$rpt
+#iterate each jmeter slave used in this test run
+for slave in $(cd /root/scalability-test-toolkit/rpts/$rpt/$load/$runid/load/ && ls -d jmeter*)
+do
+	#make error log dir for each jmeter slave
+        mkdir -p /var/www/errlog/$rpt/$slave
+	#make a copy of error log from original report dir
+        cp /root/scalability-test-toolkit/rpts/$rpt/$load/$runid/load/$slave/weblog.xml.jtl /var/www/errlog/$rpt/$slave/
+
+	#remove previous error log
+	touch /var/www/errlog/$rpt/$slave/dummy-error.html
+        rm /var/www/errlog/$rpt/$slave/*error*.html
+	#make one html file for each error
+        parse-log -t err -l /var/www/errlog/$rpt/$slave/weblog.xml.jtl
+done
+
+echo "Done"

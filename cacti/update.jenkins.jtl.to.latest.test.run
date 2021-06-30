@@ -1,0 +1,20 @@
+#!/bin/bash
+
+#get latest test run report id
+rpt=$(ls /root/scalability-test-toolkit/rpts/ -t | grep -v .tgz | head -n 1)
+echo "rpt=$rpt"
+
+#get test run load id (HARD)
+#load="300s-3000u"
+#get latest test run load id
+load=$(ls /root/scalability-test-toolkit/rpts/$rpt/ -t | tail -n 1)
+echo "load=$load"
+
+#get latest test run id
+runid=$(ls /root/scalability-test-toolkit/rpts/$rpt/$load -t | head -n 1)
+echo "runid=$runid"
+
+#make a copy of latest jenkins.jtl
+cp /root/scalability-test-toolkit/rpts/$rpt/$load/$runid/load/merge/jenkins.csv /opt/jtl/jenkins.jtl 
+
+echo "Done"

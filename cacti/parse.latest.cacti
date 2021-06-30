@@ -1,0 +1,527 @@
+#!/bin/bash
+
+if [ $# -lt 1 ]; then
+	echo "usage: $0 <target host>"
+	echo "example: $0 140.92.25.182"
+	echo "FAIL"
+	exit -1
+fi
+HOST=$1
+
+#get latest test run report id
+rpt=$(ls /root/scalability-test-toolkit/rpts/ -t | grep -v .tgz | head -n 1)
+echo "rpt=$rpt"
+
+#get test run load id (HARD)
+#load="300s-3000u"
+#get latest test run load id
+load=$(ls /root/scalability-test-toolkit/rpts/$rpt/ -t | tail -n 1)
+echo "load=$load"
+
+#get test run id
+runid=$(ls /root/scalability-test-toolkit/rpts/$rpt/$load -t | head -n 1)
+echo "runid=$runid"
+
+#get test run loop count (HARD)
+loopcount=12
+echo "loopcount=$loopcount"
+
+#get test run think time in seconds (HARD)
+thinktimesec=300
+echo "thinktimesec=$thinktimesec"
+
+#get test run upload/download period in epoch format
+#	algothrim illustration example
+#	if think time = 5 min, loop count = 12 (i.e., up/down 1 hour), omit point = 2
+#	then start time = run id + 15 min, end time = run id + 55 min
+#	formula: start time = run id + (omit point + 1)*(think time)
+#	formula: end time = run id + (loop count + 1 - omit point)*(think time)
+#	explain: + 1 because login phase is the addional one omit point
+
+#get omit point (HARD)
+omitpoint=2
+echo "omitpoint=$omitpoint"
+
+#get now year
+nowyear=$(date +%Y)
+echo "nowyear=$nowyear"
+
+#transform test run id into epoch format
+runid_epoch=$(date -d "$nowyear$(echo $runid | sed 's/-/ /')" +%s)
+echo "runid_epoch=$runid_epoch"
+
+#get cacti chart start time in epoch format
+g_start_time_epoch=$(( $runid_epoch + ( $omitpoint + 1 ) * $thinktimesec ))
+echo "g_start_time_epoch=$g_start_time_epoch"
+
+#get cacti chart end time in epoch format
+g_end_time_epoch=$(( $runid_epoch + ( $loopcount + 1 - $omitpoint ) * $thinktimesec ))
+echo "g_end_time_epoch=$g_end_time_epoch"
+
+#make cacti chart dir for this test run
+mkdir -p /var/www/cactichart/$rpt
+
+#make cacti chart dir for this target host       
+mkdir -p /var/www/cactichart/$rpt/$HOST
+
+#remove previous cacti chart      
+touch /var/www/cactichart/$rpt/$HOST/dummy.png
+rm /var/www/cactichart/$rpt/$HOST/*.png
+	
+#make cacti charts
+#start of cacti charts section
+
+#init output script file
+H=120
+W=600
+G="%8.2lf %s"
+g_out_script=/tmp/tmp.$$.script
+echo "g_out_script=$g_out_script"
+
+function parser_cpu() {
+	local rrd=$1
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+        echo "--vertical-label='' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+
+	echo "DEF:a=\"$rrd\":STAT_CPU_user:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:b=\"$rrd\":STAT_CPU_nice:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:c=\"$rrd\":STAT_CPU_system:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:d=\"$rrd\":STAT_CPU_idle:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:e=\"$rrd\":STAT_CPU_iowait:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:f=\"$rrd\":STAT_CPU_irq:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:g=\"$rrd\":STAT_CPU_softirq:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:h=\"$rrd\":STAT_CPU_steal:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:i=\"$rrd\":STAT_CPU_guest:AVERAGE \\" >> "$g_out_script"
+
+	echo "AREA:a#941342FF:\"CPU User\" \\" >> "$g_out_script"
+	echo "GPRINT:a:LAST:\"   Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:a:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:a:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:b#435247FF:\"CPU Nice\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:b:LAST:\"   Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:b:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:b:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:c#00CBF6FF:\"CPU System\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:c:LAST:\" Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:c:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:c:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:d#BFBD82FF:\"CPU Idle\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:d:LAST:\"   Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:d:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:d:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:e#C5031AFF:\"CPU Iowait\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:e:LAST:\" Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:e:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:e:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:f#F39034FF:\"CPU Irq\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:f:LAST:\"    Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:f:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:f:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:g#3D282AFF:\"CPU Softirq\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:g:LAST:\"Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:g:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:g:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:h#33369EFF:\"CPU Steal\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:h:LAST:\"  Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:h:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:h:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:i#08A000FF:\"CPU Guest\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:i:LAST:\"  Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:i:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:i:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE' " >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parser_mem() {
+	local rrd=$1
+	local idx=$2
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+        echo "--vertical-label='' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+
+	echo "DEF:a=\"$rrd\":STAT_memused:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:b=\"$rrd\":STAT_memcached:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:c=\"$rrd\":STAT_membuffer:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:d=\"$rrd\":STAT_memshared:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:e=\"$rrd\":STAT_memfree:AVERAGE \\" >> "$g_out_script"
+
+	echo "AREA:a#850707FF:\"Memused\" \\" >> "$g_out_script"
+	echo "GPRINT:a:LAST:\"  Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:a:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:a:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:b#FFDB87FF:\"Memcached\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:b:LAST:\"Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:b:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:b:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:c#25345CFF:\"Membuffer\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:c:LAST:\"Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:c:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:c:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:d#88008AFF:\"Memshared\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:d:LAST:\"Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:d:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:d:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+	echo "AREA:e#4F7774FF:\"Memfree\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:e:LAST:\"  Cur\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:e:AVERAGE:\"Avg\:$G\" \\" >> "$g_out_script"
+	echo "GPRINT:e:MAX:\"Max\:$G\\n\" \\" >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE' " >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parser_disk_iops() {
+	local rrd=$1
+	local idx=$2
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.$HWNAME.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+        echo "--vertical-label='' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+
+	echo "DEF:a=\"$rrd\":disk_read_trans:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:b=\"$rrd\":disk_read_trans:MAX \\" >> "$g_out_script"
+	echo "DEF:c=\"$rrd\":disk_write_trans:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:d=\"$rrd\":disk_write_trans:MAX \\" >> "$g_out_script"
+
+	echo "CDEF:cdeff=c,-1,* \\" >> "$g_out_script"
+	echo "CDEF:cdefj=d,-1,* \\" >> "$g_out_script"
+
+	echo "AREA:a#00FF0099:\"Read\" \\" >> "$g_out_script"
+	echo "GPRINT:a:LAST:\" Current\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:a:AVERAGE:\"Average\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:a:MAX:\"Maximum\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "LINE1:b#00A348FF:\"Peak\\n\" \\" >> "$g_out_script"
+	echo "AREA:cdeff#FF5F0099:\"Write\" \\" >> "$g_out_script"
+	echo "GPRINT:c:LAST:\"Current\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:c:AVERAGE:\"Average\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:c:MAX:\"Maximum\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "LINE1:cdefj#FF0000FF:\"Peak\\n\" \\" >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE - $HWNAME' " >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parser_disk_byte() {
+	local rrd=$1
+	local idx=$2
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.$HWNAME.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+        echo "--vertical-label='' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+
+	echo "DEF:a=\"$rrd\":disk_bytes_read:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:b=\"$rrd\":disk_bytes_read:MAX \\" >> "$g_out_script"
+	echo "DEF:c=\"$rrd\":disk_bytes_written:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:d=\"$rrd\":disk_bytes_written:MAX \\" >> "$g_out_script"
+
+	echo "CDEF:cdeff=c,-1,* \\" >> "$g_out_script"
+	echo "CDEF:cdefj=d,-1,* \\" >> "$g_out_script"
+
+	echo "AREA:a#00FF0099:\"Read\" \\" >> "$g_out_script"
+	echo "GPRINT:a:LAST:\" Current\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:a:AVERAGE:\"Average\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:a:MAX:\"Maximum\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "LINE1:b#00A348FF:\"Peak\\n\" \\" >> "$g_out_script"
+	echo "AREA:cdeff#FF5F0099:\"Write\" \\" >> "$g_out_script"
+	echo "GPRINT:c:LAST:\"Current\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:c:AVERAGE:\"Average\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:c:MAX:\"Maximum\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "LINE1:cdefj#FF0000FF:\"Peak\\n\" \\" >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE - $HWNAME' " >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parser_net_traffic() {
+	local rrd=$1
+	local idx=$2
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.$HWNAME.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+        echo "--vertical-label='' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+
+	echo "DEF:a=\"$rrd\":traffic_in:AVERAGE \\" >> "$g_out_script"
+	echo "DEF:b=\"$rrd\":traffic_out:AVERAGE \\" >> "$g_out_script"
+
+	echo "AREA:a#00CF00FF:\"Inbound\" \\" >> "$g_out_script"
+	echo "GPRINT:a:LAST:\" Current\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:a:AVERAGE:\"Average\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:a:MAX:\"Maximum\:%8.2lf %s\\n\" \\" >> "$g_out_script"
+	echo "LINE1:b#002A97FF:\"Outbound\" \\" >> "$g_out_script"
+	echo "GPRINT:b:LAST:\"Current\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:b:AVERAGE:\"Average\:%8.2lf %s\" \\" >> "$g_out_script"
+	echo "GPRINT:b:MAX:\"Maximum\:%8.2lf %s\\n\" \\" >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE - $HWNAME' " >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parser_swap() {
+	local rrd=$1
+	local idx=$2
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+#        echo "COMMENT:\" $g_start_time_epoch To $g_end_time_epoch \c\" \\" >> "$g_out_script"
+#        echo "COMMENT:\"  \n\" \\" >> "$g_out_script"
+        echo "--vertical-label='' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+        echo "DEF:a=\"$rrd\":VMSTAT_pswpin:AVERAGE \\" >> "$g_out_script"
+        echo "DEF:b=\"$rrd\":VMSTAT_pswpout:AVERAGE \\" >> "$g_out_script"
+        echo "CDEF:cdefe=b,-1,* \\" >> "$g_out_script"
+        echo "AREA:a#ECD078FF:\"Pswpin\"  \\" >> "$g_out_script"
+        echo "GPRINT:a:LAST:\" Cur\:%6.1lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:a:AVERAGE:\"Avg\:%6.1lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:a:MAX:\"Max\:%6.1lf%s\n\"  \\" >> "$g_out_script"
+        echo "AREA:cdefe#D95B43FF:\"Pswpout\"  \\" >> "$g_out_script"
+        echo "GPRINT:b:LAST:\"Cur\:%6.1lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:b:AVERAGE:\"Avg\:%6.1lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:b:MAX:\"Max\:%6.1lf%s\n\" \\"  >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE - $HWNAME'" >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parser_MEMORY() {
+	local rrd=$1
+	local idx=$2
+	echo parsing: $rrd
+
+	echo "/usr/bin/rrdtool graph '/var/www/cactichart/$rpt/$HOST/$HOST.$PNG.png' \\" >> "$g_out_script"
+        echo "--imgformat=PNG \\" >> "$g_out_script"
+        echo "--base=1000 \\" >> "$g_out_script"
+        echo "--height=$H \\" >> "$g_out_script"
+        echo "--width=$W \\" >> "$g_out_script"
+        echo "--alt-autoscale-max \\" >> "$g_out_script"
+        echo "--lower-limit=0 \\" >> "$g_out_script"
+#        echo "COMMENT:\" $g_start_time_epoch To $g_end_time_epoch \c\" \\" >> "$g_out_script"
+#        echo "COMMENT:\"  \n\" \\" >> "$g_out_script"
+        echo "--vertical-label='bytes' \\" >> "$g_out_script"
+        echo "--slope-mode \\" >> "$g_out_script"
+        echo "--font TITLE:10: \\" >> "$g_out_script"
+        echo "--font AXIS:7: \\" >> "$g_out_script"
+        echo "--font LEGEND:8: \\" >> "$g_out_script"
+        echo "--font UNIT:7: \\" >> "$g_out_script"
+        echo "DEF:a=\"$rrd\":usedReal:AVERAGE \\" >> "$g_out_script"
+        echo "DEF:b=\"$rrd\":memBuffer:AVERAGE \\" >> "$g_out_script"
+        echo "DEF:c=\"$rrd\":memCached:AVERAGE \\" >> "$g_out_script"
+        echo "DEF:d=\"$rrd\":availReal:AVERAGE \\" >> "$g_out_script"
+        echo "DEF:e=\"$rrd\":usedSwap:AVERAGE \\" >> "$g_out_script"
+        echo "DEF:f=\"$rrd\":totalReal:AVERAGE \\" >> "$g_out_script"
+        echo "CDEF:cdefa=a,1024,* \\" >> "$g_out_script"
+        echo "CDEF:cdeff=b,1024,* \\" >> "$g_out_script"
+        echo "CDEF:cdefba=c,1024,* \\" >> "$g_out_script"
+        echo "CDEF:cdefbf=d,1024,* \\" >> "$g_out_script"
+        echo "CDEF:cdefca=e,1024,* \\" >> "$g_out_script"
+        echo "CDEF:cdefcf=f,1024,* \\" >> "$g_out_script"
+        echo "AREA:cdefa#862F2FFF:\"Used Real\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefa:LAST:\"  Current\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefa:AVERAGE:\"Average\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefa:MIN:\"Minimum\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefa:MAX:\"Maximum\:%8.2lf%s\n\"  \\" >> "$g_out_script"
+        echo "AREA:cdeff#EA8F00FF:\"Buffers\":STACK \\" >> "$g_out_script"
+        echo "GPRINT:cdeff:LAST:\"    Current\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdeff:AVERAGE:\"Average\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdeff:MIN:\"Minimum\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdeff:MAX:\"Maximum\:%8.2lf%s\n\"  \\" >> "$g_out_script"
+        echo "AREA:cdefba#FFC73BFF:\"Cache\":STACK \\" >> "$g_out_script"
+        echo "GPRINT:cdefba:LAST:\"      Current\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefba:AVERAGE:\"Average\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefba:MIN:\"Minimum\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefba:MAX:\"Maximum\:%8.2lf%s\n\"  \\" >> "$g_out_script"
+        echo "AREA:cdefbf#74C366FF:\"Unused Real\":STACK \\" >> "$g_out_script"
+        echo "GPRINT:cdefbf:LAST:\"Current\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefbf:AVERAGE:\"Average\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefbf:MIN:\"Minimum\:%8.2lf%s\"  \\" >> "$g_out_script"
+        echo "GPRINT:cdefbf:MAX:\"Maximum\:%8.2lf%s\n\"  \\" >> "$g_out_script"
+        echo "AREA:cdefca#FFC3C0FF:\"Used Swap\":STACK \\" >> "$g_out_script"
+	echo "GPRINT:cdefca:LAST:\"  Current\:%8.2lf%s\"  \\" >> "$g_out_script"
+	echo "GPRINT:cdefca:AVERAGE:\"Average\:%8.2lf%s\"  \\" >> "$g_out_script"
+	echo "GPRINT:cdefca:MIN:\"Minimum\:%8.2lf%s\"  \\" >> "$g_out_script"
+	echo "GPRINT:cdefca:MAX:\"Maximum\:%8.2lf%s\n\"  \\" >> "$g_out_script"
+	echo "LINE1:cdefcf#000000FF:\"Total Real\"  \\" >> "$g_out_script"
+	echo "GPRINT:cdefcf:LAST:\" Current\:%8.2lf%s\n\" \\"  >> "$g_out_script"
+
+        echo "--start=$g_start_time_epoch \\" >> "$g_out_script"
+        echo "--end=$g_end_time_epoch \\" >> "$g_out_script"
+        echo "--title='$HOST - $TITLE - $HWNAME'" >> "$g_out_script"
+        echo "" >> "$g_out_script"
+}
+function parse() {
+RRD=$(mysql -ppassword -e "use cacti;
+select distinct pi.rrd_path
+from host h, graph_templates gt, graph_local gl, graph_templates_item gti, data_template_rrd dtr, data_local dl, poller_item pi
+where h.hostname='$HOST'
+and gt.name='$GRAPH'
+and h.id=gl.host_id
+and gt.id=gl.graph_template_id
+and gl.id=gti.local_graph_id
+and gti.task_item_id=dtr.id
+and dtr.local_data_id=dl.id
+and dl.id=pi.local_data_id" | grep .rrd)
+
+	local idx=1;
+	for rrd in $RRD
+	do
+
+if [ -z $FIELD ]; then
+HWNAME=
+else
+HWNAME=$(mysql -ppassword -e "use cacti;
+select distinct hsc.field_value
+from host h, graph_templates gt, graph_local gl, graph_templates_item gti, data_template_rrd dtr, data_local dl, poller_item pi, cacti.host_snmp_cache hsc
+where h.hostname='$HOST'
+and gt.name='$GRAPH'
+and h.id=gl.host_id
+and gt.id=gl.graph_template_id
+and gl.id=gti.local_graph_id
+and gti.task_item_id=dtr.id
+and dtr.local_data_id=dl.id
+and dl.id=pi.local_data_id
+and pi.rrd_path='$rrd'
+and h.id=hsc.host_id
+and hsc.field_name='$FIELD'
+and hsc.snmp_index=gl.snmp_index" | tail -n 1)
+fi
+echo "HWNAME=$HWNAME"
+
+		$PARSER $rrd $idx
+		idx=$(($idx + 1));
+	done
+	bash $g_out_script
+}
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Percona CPU Usage GT"
+FIELD=""
+PARSER="parser_cpu"
+TITLE="CPU Usage"
+PNG="cpu"
+parse
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Percona Memory GT"
+FIELD=""
+PARSER="parser_mem"
+TITLE="Memory Usage"
+PNG="mem"
+parse
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Host MIB - Disk IO - Transactions per Second"
+FIELD="hrDiskIODescr"
+PARSER="parser_disk_iops"
+TITLE="Disk IO - Transactions per Second"
+PNG="disk.iops"
+parse
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Host MIB - Disk IO - Bytes per Second"
+FIELD="hrDiskIODescr"
+PARSER="parser_disk_byte"
+TITLE="Disk IO - Bytes per Second"
+PNG="disk.byte"
+parse
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Interface - Traffic (bytes/sec)"
+FIELD="ifDescr"
+PARSER="parser_net_traffic"
+TITLE="Network Traffic"
+PNG="net.traffic"
+parse
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Percona Swap Usage GT"
+FIELD=""
+PARSER="parser_swap"
+TITLE="Swap Usage"
+PNG="swap"
+parse
+
+echo "#!/bin/bash" > "$g_out_script"
+GRAPH="Host Memory - ucd/net - Memory Usage"
+FIELD=""
+PARSER="parser_MEMORY"
+TITLE="iCOSA - Memory Usage"
+PNG="MEMORY"
+parse
+#end of cacti charts section
+
+echo "Done"

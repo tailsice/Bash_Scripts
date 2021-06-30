@@ -1,0 +1,124 @@
+#!/usr/bin/expect
+
+#******************************************************************************
+# 1 block :
+# Target : Sanity Check MatchMACaddr
+#          
+#******************************************************************************
+set testcase "1439.exp"
+incr TC_NUM
+lappend TC_LOSS "$testcase "
+
+#******************************************************************************
+# 2 block :
+# Local variable
+#******************************************************************************
+set passfail 1
+set debug 0
+set error_message ""
+
+set banknum 0
+#no.1
+set runtimes -1
+#no.2 0 reboot 1 power
+set APC 0
+
+#******************************************************************************
+# 3 block :
+# The default essential reported data
+#******************************************************************************
+set upload(testcaseexternalid) "$testcase"
+set upload(overwrite) 0
+set upload(status) f
+set upload(notes) ""
+# The followed data will be produced automatically
+#set upload(buildid) -1
+#set upload(testplanid) -1
+#set upload(testcaseid) -1
+
+#******************************************************************************
+# 4 block :
+# Link to target device
+#******************************************************************************
+puts "-> This is $testcase.exp target for $target "
+target_info $target
+set shell_id [remote_open $target]
+set test "Remote open to $target"
+puts "Spawn id for remote shell is $shell_id"
+if { $shell_id > 0 } {
+} else {
+       lappend error_message "Remote open to $target"
+}
+
+#******************************************************************************
+# 5 block :
+# Tester program area
+#******************************************************************************
+
+set lmpid $shell_id
+Go_to_start $lmpid Linux
+set spawn_id $lmpid
+send "\r"
+set timeout 30
+set send_slow {1 .01}
+set i 1
+
+expect "$lmp_linux" { send -s "SEL clear\r" }
+set timeout 120
+
+while { $i <= $runtimes || $runtimes == "-1" } {
+    expect "$lmp_linux" {send -s "mch_cli Reset LMP cold\r" }
+
+    set timeout 180
+    set phase "Login In LMP Linux"
+    expect {
+        "$lmp_login" { send -s "root\r" 
+	    expect "Password:" { send -s "root\r"; puts "$phase Well"}
+	}
+        timeout { puts "$phase Fail"; append error_message "$testcase $phase Fail" }
+    }
+
+    expect "$lmp_linux" { send -s "ipmitool SEL list\r" }
+
+    expect "Hard reset" { puts "Get 1st Hard rest"}
+    expect {
+        "Hard reset" { 
+	    append error_message "$testcase - Get 2nd Hard rest"; 
+	    puts "Get 2nd Hard rest"; 
+	    exit 0
+	}
+        timeout { set banknum 0;  puts "$i does not get 2nd Hard rest"}
+    }
+
+    expect "$lmp_linux" { send -s "SEL clear\r" }
+    set timeout 120
+    incr i
+ 
+}
+
+# Judgetment Pass or Fail
+if { $error_message != "" } {
+    fail "-> ERROR : $error_message"
+    append upload(notes) "-> ERROR : $error_message"
+} elseif { $passfail == 1 } {
+    set upload(status) p
+    pass "-> ~~~ $testcase ~~~"
+} else {
+    fail "-> ERROR : $error_message,\n passfail = $passfail"
+    append upload(notes) "-> ERROR : $error_message,\n passfail = $passfail"
+}
+
+# Other desciption way
+#remote_send $target "i2c probe\r"
+#remote_expect $target 10 {
+#       "0F 20 52 54 68 69 6E 70 71 72" { pass "i2c probe" }
+#}
+#remote_send $target "pci\r"
+#remote_expect $target 10 {
+#       "00.13.01   0x1033" { pass "pci probe" }
+
+#******************************************************************************
+# 6 block :
+# Tester compare test result by program and report data
+#******************************************************************************
+Report_result upload $testcase $debug
